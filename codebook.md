@@ -282,7 +282,7 @@ head(dtMelted)
 
 ```r
 setkey(dtMelted, subject_id, Activity, Domain, Signals, Motion, 
-       Jerk, Magnitude, Variable, Axis)
+       Jerk, Magnitude, Axis, Variable)
 dtTidy <- dtMelted[, list( average = mean(value)), by = key(dtMelted)]
 ```
 
