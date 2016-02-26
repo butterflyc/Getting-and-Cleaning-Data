@@ -1,0 +1,136 @@
+---
+Codebook : Getting and Cleaning data project
+output: codebook.md
+---
+
+## Preparation 
+
+```{r }
+#############    PREPARARTION     ###############
+# 1. set work directory
+# 2. include all necessary packages
+# 3. download all files and dataset
+# 4. Unzip data files
+
+setwd("/Users/xinsui/Desktop/Rtraining/GandCData")
+path <- getwd()
+library(data.table)
+library(reshape2)
+
+
+fileURL <- "https://d396qusza40orc.cloudfront.net/getdata%2Fprojectfiles%2FUCI%20HAR%20Dataset.zip"
+destfile <- "dataset.zip"
+download.file(fileURL, file.path(path, destfile))
+unzip(file.path(path,destfile), files = NULL, list = FALSE, overwrite = TRUE,junkpaths = FALSE, exdir = ".", unzip = "internal",
+      setTimes = FALSE )
+datapath = file.path(path,"/UCI HAR Dataset")
+list.files(datapath, recursive = TRUE)
+
+```
+
+## Reading Data from raw files
+
+### 1.Activity labels
+
+```{r }
+# Activity Labels 
+activityLabels <- fread(file.path(datapath, "activity_labels.txt"))
+setnames (activityLabels, c("V1", "V2"), c("act_num", "Activity"))
+activityLabels
+```
+
+### 2.Feature names list
+
+```{r }
+features <- fread(file.path(datapath, "features.txt"))
+setnames(features, c("V1", "V2"), c("feature_num", "feature_name"))
+
+# Get only the data on mean and std. dev features
+features <- features[grepl("mean\\(\\)|std\\(\\)", feature_name)]
+features$feature_num <- features[, paste0("V", feature_num)]
+wanted <- features$feature_num
+head(features)
+```
+
+### 3.Read all training and test files
+```{r }
+# Read Train and Test Data
+dtSubTrain <- fread(file.path(datapath, "train", "Subject_train.txt"))
+dtSubTest <- fread(file.path(datapath, "test", "Subject_test.txt"))
+
+dtTrain <- fread(file.path(datapath, "train", "X_train.txt"), select = wanted)
+dtTest <- fread(file.path(datapath, "test", "X_test.txt"), select = wanted)
+dtActTrain <- fread(file.path(datapath, "train", "Y_train.txt"))
+dtActTest <- fread(file.path(datapath, "test", "Y_test.txt"))  
+
+# Make descriptive variable names 
+setnames(dtSubTrain, "V1", "subject_id")
+setnames(dtActTrain, "V1", "act_num")
+setnames(dtSubTest, "V1", "subject_id")
+setnames(dtActTest, "V1", "act_num")
+
+```
+
+### 4.Merge training and test data 
+```{r}
+dtTrain <- cbind(dtTrain, dtSubTrain, dtActTrain)
+dtTest <- cbind(dtTest, dtSubTest, dtActTest)
+dtData = rbind(dtTrain, dtTest)
+setkey(dtData, subject_id, act_num)
+
+head(dtData)
+```
+
+### 5.descriptive activity names to name the activities in the data set
+```{r}
+dtData <- merge(dtData, activityLabels, by = "act_num", all.x = TRUE)
+setkey(dtData, subject_id, act_num, Activity)
+```
+### Appropriately labels the data set with descriptive variable names.
+```{r}
+# Get descriptive feature names.
+dtMelted <- data.table(melt(dtData, key(dtData), variable.name = "feature_num"))
+dtMelted <- merge(dtMelted, features[, list(feature_num, feature_name)], by = "feature_num", 
+            all.x = TRUE)
+
+# Separate different feature variables 
+
+## Features with 1 category
+dtMelted$Jerk <- factor(grepl("Jerk",dtMelted$feature_name), labels = c(NA, "Jerk"))
+dtMelted$Magnitude <- factor(grepl("Mag",dtMelted$feature_name), labels = c(NA, "Magnitude"))
+## Features with 2 categories
+n <- 2
+y <- matrix(seq(1, n), nrow = n)
+x <- matrix(c(grepl("^t", dtMelted$feature_name), grepl("^f",dtMelted$feature_name)), ncol = nrow(y))
+dtMelted$Domain <- factor(x %*% y, labels = c("time", "frequency"))
+x <- matrix(c(grepl("Acc", dtMelted$feature_name), grepl("Gyro",dtMelted$feature_name)), ncol = nrow(y))
+dtMelted$Signals <- factor(x %*% y, labels = c("Accelerometer", "Gyroscope"))
+x <- matrix(c(grepl("BodyAcc", dtMelted$feature_name), grepl("GravityAcc", dtMelted$feature_name)), ncol = nrow(y))
+dtMelted$Motion <- factor(x %*% y, labels = c(NA, "Body", "Gravity"))
+x <- matrix(c(grepl("mean()",dtMelted$feature_name), grepl("std()",dtMelted$feature_name)), ncol = nrow(y))
+dtMelted$Variable <- factor(x %*% y, labels = c("Mean", "SD"))
+
+## Features with 3 categories
+n <- 3
+y <- matrix(seq(1, n), nrow = n)
+x <- matrix(c(grepl("-X",dtMelted$feature_name), grepl("-Y",dtMelted$feature_name), grepl("-Z",dtMelted$feature_name)), ncol = nrow(y))
+dtMelted$Axis <- factor(x %*% y, labels = c(NA, "X", "Y", "Z"))
+
+head(dtMelted)
+
+```
+### create tidy data set with the average of each variable for each activity and each subject.
+```{r}
+
+setkey(dtMelted, subject_id, Activity, Domain, Signals, Motion, 
+       Jerk, Magnitude, Variable, Axis)
+dtTidy <- dtMelted[, list( average = mean(value)), by = key(dtMelted)]
+
+
+```
+
+
+### write into a text file
+```{r}
+write.table(dtTidy, "tidy.txt", row.names = FALSE, quote = FALSE)
+```
